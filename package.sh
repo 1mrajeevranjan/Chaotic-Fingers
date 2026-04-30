@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# package.sh — Build & package Chaotic Fingers as a distributable DMG
+# package.sh — Build & package Chaotic Fingers as a Universal macOS app
 # =============================================================================
 set -e
 
@@ -9,19 +9,22 @@ APP_BUNDLE="${APP_NAME}.app"
 BINARY_NAME="ChaoticFingers"
 DMG_NAME="ChaoticFingers-Installer.dmg"
 VOLUME_NAME="Chaotic Fingers"
-BUILD_DIR=".build/release"
+# Universal build path
+BUILD_DIR=".build/apple/Products/Release"
 DIST_DIR="dist"
 
-echo "🔨 Building release binary..."
-swift build -c release
+echo "🔨 Building Universal release binary (arm64 + x86_64)..."
+# Build for both architectures to ensure compatibility with all Macs
+swift build -c release --arch arm64 --arch x86_64
 
 echo "📦 Assembling .app bundle..."
 rm -rf "${APP_BUNDLE}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
-# Copy binary
+# Copy Universal binary
 cp "${BUILD_DIR}/${BINARY_NAME}" "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}"
+# CRITICAL: Ensure executable permissions are set
 chmod +x "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}"
 
 # Copy Info.plist
@@ -34,6 +37,9 @@ if [ -d "Resources" ]; then
         cp Resources/AppIcon.icns "${APP_BUNDLE}/Contents/Resources/"
     fi
 fi
+
+# Remove extended attributes to prevent "Application can't be opened" issues
+xattr -cr "${APP_BUNDLE}"
 
 echo "📀 Creating DMG installer..."
 mkdir -p "${DIST_DIR}"
@@ -62,3 +68,7 @@ rm -rf "${STAGING_DIR}"
 echo ""
 echo "✅ Done!"
 echo "   Installer: ${DIST_DIR}/${DMG_NAME}"
+echo ""
+echo "💡 If you see 'Application can't be opened' on another Mac:"
+echo "   Run this command in Terminal on that Mac:"
+echo "   xattr -cr /Applications/'Chaotic Fingers.app'"
