@@ -1,10 +1,10 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
     name: "ChaoticFingers",
     platforms: [
-        .macOS(.v26)
+        .macOS(.v14)  // Minimum: macOS 14 Sonoma (@Observable + SMAppService)
     ],
     products: [
         .executable(name: "ChaoticFingers", targets: ["ChaoticFingers"])
