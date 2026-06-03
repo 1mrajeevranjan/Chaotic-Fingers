@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ServiceManagement
+import ApplicationServices
 
 @main
 struct ChaoticFingersApp: App {
@@ -8,7 +9,16 @@ struct ChaoticFingersApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsView()
+        }
+        .commands {
+            AppCommands()
+            CommandGroup(replacing: .appInfo) {
+                Button("About Chaotic Fingers") {
+                    NSApp.orderFrontStandardAboutPanel(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
         }
     }
 }
@@ -48,7 +58,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showMainWindow()
         
         // Initial setup check
-        if !AppSetup.shared.checkAccessibilityPermission() {
+        if !isAccessibilityGranted(promptIfNeeded: false) {
             showOnboarding()
         }
     }
@@ -128,16 +138,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 450, height: 550),
-                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
                 defer: false
             )
+            window.title = "Chaotic Fingers"
             window.center()
             window.isReleasedWhenClosed = false
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            window.backgroundColor = .clear
-            window.isMovableByWindowBackground = true
             window.contentView = NSHostingView(rootView: view)
             mainWindow = window
         }
@@ -169,5 +176,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func stopBlocking() {
         blocker.stopBlocking()
         mainWindow?.level = .normal
+    }
+    
+    private func isAccessibilityGranted(promptIfNeeded: Bool) -> Bool {
+        if AXIsProcessTrusted() { return true }
+        if promptIfNeeded {
+            let key = kAXTrustedCheckOptionPrompt.takeRetainedValue() as String
+            let options: CFDictionary = [key: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
+        return AXIsProcessTrusted()
     }
 }

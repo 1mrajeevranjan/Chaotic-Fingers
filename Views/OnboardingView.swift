@@ -26,7 +26,7 @@ struct OnboardingView: View {
             }
         }
         .frame(width: 450, height: 550)
-        .background(VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow))
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             checkStatus()
         }

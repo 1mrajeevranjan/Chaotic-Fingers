@@ -5,21 +5,16 @@ struct LandingView: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("appAppearance") private var appAppearance: AppAppearance = .system
     @State private var selectedMode: InputBlocker.BlockingMode = .keyboard
-    @State private var showingSettings = false
     var onAction: (InputBlocker.BlockingMode) -> Void
 
     // Pure SwiftUI background colors – resolved via @Environment(\.colorScheme),
     // NOT via NSColor wrappers which lag behind preferredColorScheme changes.
     private var bgColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.13, green: 0.13, blue: 0.14)   // dark system-like
-            : Color(red: 0.94, green: 0.94, blue: 0.96)   // light system-like
+        Color(nsColor: .windowBackgroundColor)
     }
 
     private var cardBgColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.18, green: 0.18, blue: 0.20)
-            : Color(red: 1.0,  green: 1.0,  blue: 1.0)
+        Color(nsColor: .controlBackgroundColor)
     }
 
     var body: some View {
@@ -39,17 +34,6 @@ struct LandingView: View {
                 }
 
                 VStack(spacing: 8) {
-                    HStack {
-                        Spacer()
-                        Button(action: { showingSettings = true }) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: 18))
-                                .foregroundStyle(.secondary)
-                                .padding(16)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
                     if let appIcon = NSApp.applicationIconImage {
                         Image(nsImage: appIcon)
                             .resizable()
@@ -78,31 +62,6 @@ struct LandingView: View {
 
             // ── BOTTOM SECTION ───────────────────────────────────────────────
             VStack(spacing: 0) {
-                // Mode Tabs
-                HStack(spacing: 0) {
-                    ModeTabButton(mode: .keyboard, label: "Keyboard",
-                                  isSelected: selectedMode == .keyboard,
-                                  cardBg: cardBgColor) { selectedMode = .keyboard }
-                    Divider().frame(height: 14)
-                    ModeTabButton(mode: .trackpad, label: "Trackpad",
-                                  isSelected: selectedMode == .trackpad,
-                                  cardBg: cardBgColor) { selectedMode = .trackpad }
-                    Divider().frame(height: 14)
-                    ModeTabButton(mode: .both, label: "Both",
-                                  isSelected: selectedMode == .both,
-                                  cardBg: cardBgColor) { selectedMode = .both }
-                }
-                .padding(4)
-                .background(Color.primary.opacity(0.05))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-                .disabled(blocker.isBlocking)
-
                 Spacer()
 
                 // Info Card
@@ -137,25 +96,6 @@ struct LandingView: View {
 
                 // Action Button
                 VStack(spacing: 8) {
-                    Button(action: {
-                        if blocker.isBlocking {
-                            blocker.stopBlocking()
-                        } else {
-                            onAction(selectedMode)
-                        }
-                    }) {
-                        Text(blocker.isBlocking ? "Stop" : "Start")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .background(blocker.isBlocking ? Color.red : Color.blue)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.defaultAction)
-
                     if blocker.isBlocking {
                         Text(gestureInstruction)
                             .font(.system(size: 11, weight: .medium))
@@ -169,18 +109,32 @@ struct LandingView: View {
             }
             .background(bgColor)
         }
-        .frame(width: 450, height: 550)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: selectedMode)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: blocker.isBlocking)
-        .sheet(isPresented: $showingSettings) {
-            RootWrapper(content: OnboardingView(onComplete: {
-                showingSettings = false
-                if let delegate = NSApp.delegate as? AppDelegate {
-                    delegate.applyVisibilitySettings()
-                    delegate.applyLoginItemSettings()
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Picker("Mode", selection: $selectedMode) {
+                    Text("Keyboard").tag(InputBlocker.BlockingMode.keyboard)
+                    Text("Trackpad").tag(InputBlocker.BlockingMode.trackpad)
+                    Text("Both").tag(InputBlocker.BlockingMode.both)
                 }
-            }))
+                .pickerStyle(.segmented)
+                .frame(width: 240)
+                .disabled(blocker.isBlocking)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button(blocker.isBlocking ? "Stop" : "Start") {
+                    if blocker.isBlocking {
+                        blocker.stopBlocking()
+                    } else {
+                        onAction(selectedMode)
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
         }
+        .windowToolbarStyle(.unified)
+        .frame(minWidth: 420, idealWidth: 480, maxWidth: 800, minHeight: 420, idealHeight: 560, maxHeight: 900)
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -230,31 +184,5 @@ struct LandingView: View {
         case .both:     return "Hold L + R Command for 3s to stop"
         case .none:     return ""
         }
-    }
-}
-
-// ── ModeTabButton ─────────────────────────────────────────────────────────────
-
-struct ModeTabButton: View {
-    let mode: InputBlocker.BlockingMode
-    let label: String
-    let isSelected: Bool
-    let cardBg: Color          // passed from parent so it uses the same resolved color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(isSelected ? cardBg : Color.primary.opacity(0.001))
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .shadow(color: isSelected ? Color.primary.opacity(0.1) : .clear,
-                        radius: 2, x: 0, y: 1)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
