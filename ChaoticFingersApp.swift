@@ -44,7 +44,7 @@ struct RootWrapper<Content: View>: View {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// `NSApp.delegate as? AppDelegate` returns nil under
     /// `@NSApplicationDelegateAdaptor` — SwiftUI does not leave our instance
     /// there — so every view and command that looked the delegate up that way
@@ -548,7 +548,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 contentRect: NSRect(x: 0, y: 0,
                                     width: AppTheme.Window.idealWidth,
                                     height: AppTheme.Window.idealHeight),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                // Not `.resizable`: the layout is a fixed-size panel, and the
+                // green button zooms by resizing, so locking the size is what
+                // actually disables it rather than just greying the button.
+                styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false
             )
@@ -559,18 +562,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: landingRoot)
 
-            // Zoom and full screen do nothing useful for a fixed-purpose panel.
+            // Zoom and full screen do nothing useful for a fixed-size panel.
             // The button stays visible — hiding a traffic light is worse — but
-            // inert, and the window is still freely resizable by its edges.
+            // inert.
             window.collectionBehavior.insert(.fullScreenNone)
             window.standardWindowButton(.zoomButton)?.isEnabled = false
+            window.delegate = self
 
-            // After the toolbar, so the content keeps its full height rather
-            // than losing it to the taller title bar.
+            // Autosave first: restoring a saved frame overwrites the size, so
+            // the content size has to be forced afterwards or a frame saved at
+            // some other size locks the window at it.
+            window.setFrameAutosaveName("DashboardWindow2")
             window.setContentSize(NSSize(width: AppTheme.Window.idealWidth,
                                          height: AppTheme.Window.idealHeight))
-            window.center()
-            window.setFrameAutosaveName("DashboardWindow2")
+            if window.frame.origin == .zero { window.center() }
             mainWindow = window
         }
 
@@ -613,6 +618,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         frame.origin.y += frame.height - target.height
         frame.size.height = target.height
         window.setFrame(frame, display: true)
+    }
+
+    // MARK: - NSWindowDelegate
+
+    /// Blocks zoom from every route. Disabling the green button only covers
+    /// clicks on it — a double-click on the title bar and Window ▸ Zoom both
+    /// still zoom the window otherwise.
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        false
     }
 
     // MARK: - Blocking
