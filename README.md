@@ -236,10 +236,28 @@ Clear stale entries left by earlier ad-hoc builds:
 tccutil reset Accessibility com.rajeev.ChaoticFingers
 ```
 
-The script also stamps `LC_BUILD_VERSION` with `vtool`, because macOS selects window chrome
-(traffic light size, title bar metrics) from the SDK recorded in the binary rather than the
-deployment target. Without it the app renders legacy 12pt traffic lights beside every native
-window's 16pt ones.
+### Window chrome
+
+macOS selects window chrome — traffic light size, title bar metrics — from the SDK recorded in the
+binary rather than the deployment target. Building against the macOS 26+ SDK needs Xcode, so
+`package.sh` can stamp `LC_BUILD_VERSION` with `vtool` instead:
+
+```bash
+CHROME_SDK=27.0 bash package.sh
+```
+
+It is a trade rather than a free win, measured on macOS 27:
+
+| Build | Traffic lights | Menu item icons |
+|---|---|---|
+| unstamped (default) | 12×14 | render |
+| `CHROME_SDK=26.0` | 16×16 | do not render |
+| `CHROME_SDK=27.0` | 16×16 | do not render |
+
+Declaring a newer SDK while compiling against older headers is a half opt-in, and the redesigned
+menus stop drawing `NSMenuItem` images in that state — confirmed against symbol images, explicit
+sizes, non-template images and rasterised bitmaps alike. Building against the real SDK in Xcode
+gets both. The default is unstamped, so the menus keep their icons.
 
 > An `Apple Development` certificate is fine on your own Mac. Distributing to *other* Macs without
 > warnings additionally requires a `Developer ID Application` certificate and notarization.

@@ -28,17 +28,30 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 cp "${BUILD_DIR}/${BINARY_NAME}" "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}"
 chmod +x "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}"
 
-# ── Window chrome opt-in ─────────────────────────────────────────────────────
-# macOS picks the window chrome (traffic light size, title bar metrics) from the
-# SDK recorded in LC_BUILD_VERSION, not from the deployment target. Building
-# against the macOS 27 SDK needs Xcode — its SwiftUI macro plugins ship only
-# there — so stamp the load command instead, or the app renders the legacy
-# 12pt traffic lights next to every native window's 16pt ones.
+# ── Window chrome (opt-in) ───────────────────────────────────────────────────
+# macOS picks window chrome (traffic light size, title bar metrics) from the SDK
+# recorded in LC_BUILD_VERSION, not the deployment target. Building against the
+# macOS 26+ SDK needs Xcode — its SwiftUI macro plugins ship only there — so
+# CHROME_SDK stamps the load command instead.
+#
+# It is a trade, measured on macOS 27:
+#
+#   unstamped (default)  12x14 traffic lights   menu item icons render
+#   CHROME_SDK=26.0      16x16 traffic lights   menu item icons do NOT render
+#   CHROME_SDK=27.0      16x16 traffic lights   menu item icons do NOT render
+#
+# Declaring a new SDK while compiling against older headers is a half opt-in,
+# and the redesigned menus stop drawing NSMenuItem images in that state —
+# confirmed against symbol images, explicit sizes, non-template images and
+# rasterised bitmaps alike. Building against the real SDK in Xcode gets both.
+#
 # Must run before codesign: vtool rewrites the binary and invalidates the seal.
-echo "🪟 Stamping SDK version for current window chrome..."
-vtool -set-build-version macos 14.0 27.0 -replace \
-    -output "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}" \
-    "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}" 2>/dev/null
+if [ -n "${CHROME_SDK:-}" ]; then
+    echo "🪟 Stamping SDK ${CHROME_SDK} for window chrome (menu icons will not render)..."
+    vtool -set-build-version macos 14.0 "${CHROME_SDK}" -replace \
+        -output "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}" \
+        "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}" 2>/dev/null
+fi
 
 # ── Info.plist ────────────────────────────────────────────────────────────────
 cp Info.plist "${APP_BUNDLE}/Contents/Info.plist"
