@@ -380,7 +380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(settings)
 
         let more = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
-        more.image = Self.menuSymbol("ellipsis.circle")
+        more.attributedTitle = Self.menuTitle("More", symbol: "ellipsis.circle")
         more.submenu = makeMoreMenu()
         menu.addItem(more)
 
@@ -389,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let quit = NSMenuItem(title: "Quit \(Self.appName)",
                               action: #selector(NSApplication.terminate(_:)),
                               keyEquivalent: "q")
-        quit.image = Self.menuSymbol("power")
+        quit.attributedTitle = Self.menuTitle("Quit \(Self.appName)", symbol: "power")
         menu.addItem(quit)
         return menu
     }
@@ -422,6 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         item.representedObject = url
         if url == nil {
             item.isEnabled = false
+            item.attributedTitle = Self.menuTitle(title, symbol: symbol, enabled: false)
             item.toolTip = "Set this URL in Utilities/AppLinks.swift"
         }
         return item
@@ -430,18 +431,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func menuItem(_ title: String, _ action: Selector, symbol: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
-        item.image = Self.menuSymbol(symbol)
+        item.attributedTitle = Self.menuTitle(title, symbol: symbol)
         return item
     }
 
-    /// Menu-sized template symbol, so it tints with the highlight like the
-    /// icons in the system's own menus.
-    private static func menuSymbol(_ name: String) -> NSImage? {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration) else { return nil }
-        image.isTemplate = true
-        return image
+    /// Icon drawn inside the title as a text attachment.
+    ///
+    /// Current macOS ignores `NSMenuItem.image` for this app, so the symbol
+    /// rides along with the title text instead, which the menu does render.
+    /// Disabled items get the dimmed label colour by hand, because an
+    /// attributed title opts out of the automatic disabled styling.
+    private static func menuTitle(_ title: String,
+                                  symbol: String,
+                                  enabled: Bool = true) -> NSAttributedString {
+        let line = NSMutableAttributedString()
+
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+            image.size = NSSize(width: 14, height: 14)
+            image.isTemplate = true
+
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            attachment.bounds = CGRect(x: 0, y: -3, width: 14, height: 14)
+            line.append(NSAttributedString(attachment: attachment))
+            line.append(NSAttributedString(string: "  "))
+        }
+
+        line.append(NSAttributedString(
+            string: title,
+            attributes: [.foregroundColor: enabled ? NSColor.labelColor : NSColor.disabledControlTextColor]
+        ))
+        return line
     }
 
     // MARK: - Menu actions
