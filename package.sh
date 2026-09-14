@@ -10,11 +10,14 @@ BINARY_NAME="ChaoticFingers"
 RESOURCE_BUNDLE="${BINARY_NAME}_${BINARY_NAME}.bundle"
 DMG_NAME="ChaoticFingers-Installer.dmg"
 VOLUME_NAME="Chaotic Fingers"
-BUILD_DIR=".build/apple/Products/Release"
 DIST_DIR="dist"
 
 echo "🔨 Building Universal release binary (arm64 + x86_64)..."
 swift build -c release --arch arm64 --arch x86_64
+
+# Ask SwiftPM where it put the products instead of hardcoding a layout — the
+# path moved between build-system versions (.build/apple/... -> .build/out/...).
+BUILD_DIR=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
 
 echo "📦 Assembling .app bundle..."
 rm -rf "${APP_BUNDLE}"
@@ -24,6 +27,18 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 # ── Binary ────────────────────────────────────────────────────────────────────
 cp "${BUILD_DIR}/${BINARY_NAME}" "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}"
 chmod +x "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}"
+
+# ── Window chrome opt-in ─────────────────────────────────────────────────────
+# macOS picks the window chrome (traffic light size, title bar metrics) from the
+# SDK recorded in LC_BUILD_VERSION, not from the deployment target. Building
+# against the macOS 27 SDK needs Xcode — its SwiftUI macro plugins ship only
+# there — so stamp the load command instead, or the app renders the legacy
+# 12pt traffic lights next to every native window's 16pt ones.
+# Must run before codesign: vtool rewrites the binary and invalidates the seal.
+echo "🪟 Stamping SDK version for current window chrome..."
+vtool -set-build-version macos 14.0 27.0 -replace \
+    -output "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}" \
+    "${APP_BUNDLE}/Contents/MacOS/${BINARY_NAME}" 2>/dev/null
 
 # ── Info.plist ────────────────────────────────────────────────────────────────
 cp Info.plist "${APP_BUNDLE}/Contents/Info.plist"
@@ -47,17 +62,41 @@ else
 fi
 
 # ── Code Signing ─────────────────────────────────────────────────────────────
-echo "🔐 Code signing (ad-hoc with Hardened Runtime)..."
+# An ad-hoc signature makes the designated requirement a bare cdhash, which
+# changes on every build — so macOS treats each rebuild as a different app and
+# Accessibility has to be granted all over again. Signing with a real identity
+# produces a requirement based on the bundle id plus the certificate, which
+# survives rebuilds, so the grant sticks.
+BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Info.plist)
+
+if [ -z "${CODESIGN_IDENTITY:-}" ]; then
+    CODESIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep -E "Developer ID Application|Apple Development" \
+        | head -1 | sed -E 's/.*"(.*)"/\1/')
+fi
+
+if [ -n "${CODESIGN_IDENTITY}" ]; then
+    echo "🔐 Code signing as: ${CODESIGN_IDENTITY}"
+else
+    CODESIGN_IDENTITY="-"
+    echo "⚠️  No code signing identity found — falling back to ad-hoc."
+    echo "    Accessibility permission will need re-granting after every build."
+fi
+
 xattr -cr "${APP_BUNDLE}"
-codesign \
-    --deep \
-    --force \
-    --sign - \
-    --options runtime \
-    --timestamp=none \
+
+# Sign nested code first, then the app. --deep is deprecated and seals nested
+# bundles inconsistently.
+codesign --force --sign "${CODESIGN_IDENTITY}" --options runtime --timestamp=none \
+    "${APP_BUNDLE}/Contents/Resources/${RESOURCE_BUNDLE}"
+
+codesign --force --sign "${CODESIGN_IDENTITY}" --options runtime --timestamp=none \
+    --identifier "${BUNDLE_ID}" \
     "${APP_BUNDLE}"
 
+codesign --verify --strict "${APP_BUNDLE}"
 echo "   ✅ Signed: $(codesign -dv "${APP_BUNDLE}" 2>&1 | grep Signature)"
+echo "   ✅ Requirement: $(codesign -d -r- "${APP_BUNDLE}" 2>&1 | grep '^designated')"
 
 # ── DMG ───────────────────────────────────────────────────────────────────────
 echo "📀 Creating DMG installer..."

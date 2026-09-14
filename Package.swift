@@ -10,10 +10,24 @@ let package = Package(
         .executable(name: "ChaoticFingers", targets: ["ChaoticFingers"])
     ],
     targets: [
+        // Pure gesture/blocking logic, free of AppKit so it can be exercised
+        // by the SelfCheck executable.
+        .target(name: "ChaoticFingersCore", path: "Core"),
+
         .executableTarget(
             name: "ChaoticFingers",
+            dependencies: ["ChaoticFingersCore"],
             path: ".",
-            exclude: ["Chaotic Fingers.app", "dist", "package.sh", "README.md", "icon.png"],
+            exclude: [
+                "Core",
+                "Tests",
+                "Chaotic Fingers.app",
+                "dist",
+                "package.sh",
+                "README.md",
+                "icon.png",
+                "Info.plist"
+            ],
             resources: [
                 .process("Resources")
             ],
@@ -25,6 +39,15 @@ let package = Package(
                     "-Xlinker", "Info.plist"
                 ])
             ]
+        ),
+
+        // `swift run SelfCheck` — assert-based checks for ChaoticFingersCore.
+        // XCTest and swift-testing both require Xcode, which this package does
+        // not otherwise need, so `swift test` is not usable here.
+        .executableTarget(
+            name: "SelfCheck",
+            dependencies: ["ChaoticFingersCore"],
+            path: "Tests/SelfCheck"
         )
     ]
 )

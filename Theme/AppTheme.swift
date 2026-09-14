@@ -1,62 +1,130 @@
 import SwiftUI
 
+/// Layout tokens. Spacing sits on the 8pt grid macOS controls are laid out on;
+/// radii follow the native scale (8 for panes and rows, 12 for cards).
 enum AppTheme {
-    enum Colors {
-        static let background = Color.primary.opacity(0.03)
-        
-        static let keyboardGradient = Gradient(colors: [Color(hex: "5CA4F0"), Color(hex: "8D7CF6")])
-        static let trackpadGradient = Gradient(colors: [Color(hex: "FF8585"), Color(hex: "FFF08A")])
-        static let bothGradient = Gradient(colors: [Color(hex: "4CCB85"), Color(hex: "2DD4BF")])
-        
-        static let activeGradient = Gradient(colors: [Color(hex: "FF5F6D"), Color(hex: "FF3131")]) // Red
-        static let inactiveGradient = Gradient(colors: [Color(hex: "11998E"), Color(hex: "38EF7D")]) // Green
-        
-        static func accentColor(for mode: String) -> Color {
-            switch mode {
-            case "keyboard": return Color(hex: "5CA4F0")
-            case "trackpad": return Color(hex: "FF8585")
-            case "both": return Color(hex: "4CCB85")
-            default: return .primary
-            }
-        }
-    }
-    
     enum Spacing {
         static let tiny: CGFloat = 4
         static let small: CGFloat = 8
-        static let medium: CGFloat = 16
-        static let large: CGFloat = 24
+        static let medium: CGFloat = 12
+        static let large: CGFloat = 20
+        static let section: CGFloat = 28
     }
-    
+
     enum Radius {
-        static let card: CGFloat = 16
-        static let inner: CGFloat = 10
-        static let button: CGFloat = 22
+        static let chip: CGFloat = 6
+        static let pane: CGFloat = 8
+        static let card: CGFloat = 12
+    }
+
+    /// Window content bounds. The main window is resizable but stays legible.
+    enum Window {
+        static let minWidth: CGFloat = 420
+        static let idealWidth: CGFloat = 480
+        static let minHeight: CGFloat = 430
+        static let idealHeight: CGFloat = 480
+        /// Onboarding carries more content than the dashboard; the window grows
+        /// to fit it so neither step has to scroll.
+        static let onboardingHeight: CGFloat = 620
     }
 }
 
-extension Color {
-    init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
-        let a, r, g, b: UInt64
-        switch hex.count {
-        case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
-        case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
-        case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
-        default:
-            (a, r, g, b) = (1, 1, 1, 0)
+/// `NSVisualEffectView` bridge. SwiftUI's built-in materials do not expose the
+/// window-background vibrancy used by native utility windows.
+struct VisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .windowBackground
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
+}
+
+/// Native bordered-box pane: hairline separator border, continuous corners.
+/// The border thickens under Increase Contrast, where a hairline separator is
+/// exactly the thing the setting exists to fix.
+struct BoxedPane: ViewModifier {
+    let radius: CGFloat
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        content
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(
+                        contrast == .increased ? Color.primary.opacity(0.55) : Color(nsColor: .separatorColor),
+                        lineWidth: contrast == .increased ? 1.5 : 1
+                    )
+            )
+    }
+}
+
+/// ScrollView whose content fills the viewport when it fits, so `Spacer`s still
+/// distribute — a plain ScrollView gives content unbounded height, collapsing
+/// every Spacer and packing everything against the top.
+struct FittingScrollView<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
         }
-        self.init(
-            .sRGB,
-            red: Double(r) / 255,
-            green: Double(g) / 255,
-            blue: Double(b) / 255,
-            opacity: Double(a) / 255
-        )
+    }
+}
+
+extension View {
+    func boxedPane(radius: CGFloat = AppTheme.Radius.pane) -> some View {
+        modifier(BoxedPane(radius: radius))
+    }
+
+    /// SwiftUI only sets the pointing-hand cursor for `Button`/`Link`.
+    func pointerOnHover() -> some View {
+        onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
+/// The canonical settings row: title left, secondary caption beneath it,
+/// switch hard right at System Settings scale.
+struct SubtitleToggle: View {
+    let title: String
+    var subtitle: String? = nil
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: AppTheme.Spacing.medium) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: AppTheme.Spacing.medium)
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                // NSSwitch strands its knob mid-transition when isOn flips
+                // during the implicit animation; redraw outright instead.
+                .animation(nil, value: isOn)
+                .accessibilityLabel(title)
+        }
     }
 }

@@ -55,5 +55,34 @@ bash package.sh
 ```
 The resulting installer will be saved in `dist/ChaoticFingers-Installer.dmg`.
 
+### Code signing and the Accessibility grant
+
+`package.sh` signs with the first `Developer ID Application` or `Apple Development`
+identity it finds in your keychain. Override it explicitly if you have several:
+
+```bash
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" bash package.sh
+```
+
+**This matters more than it looks.** An ad-hoc signature (`--sign -`) makes the
+app's designated requirement a bare `cdhash`, which changes on every build, so
+macOS treats each rebuild as a different app and the Accessibility permission
+has to be granted again every single time. A real identity produces a
+requirement based on the bundle id plus the certificate, which is identical
+across rebuilds — grant it once and it sticks.
+
+If no identity is found the script still works, but falls back to ad-hoc and
+warns you that the permission will keep resetting.
+
+To clear stale Accessibility entries left behind by earlier ad-hoc builds:
+
+```bash
+tccutil reset Accessibility com.rajeev.ChaoticFingers
+```
+
+Note: an `Apple Development` certificate is fine on your own Mac. Distributing
+to *other* Macs without warnings additionally requires a `Developer ID
+Application` certificate and notarization.
+
 ---
 Designed with ❤️ for parents and hardware enthusiasts.

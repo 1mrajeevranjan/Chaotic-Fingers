@@ -7,14 +7,32 @@ class AppSetup {
     
     // MARK: - Accessibility Permissions
     
+    /// Read-only check. Never pass AXTrustedCheckOptionPrompt here — this is
+    /// polled while onboarding is on screen, and prompting would stack a new
+    /// system dialog every poll.
     func checkAccessibilityPermission() -> Bool {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
+        AXIsProcessTrusted()
     }
-    
-    func requestAccessibilityPermission() {
+
+    /// Shows the system's own Accessibility prompt and reports current trust.
+    /// Quiet enough for a menu bar click — macOS decides whether to draw the
+    /// dialog, and nothing is forced on screen either way.
+    @discardableResult
+    func promptForAccessibility() -> Bool {
+        let key = kAXTrustedCheckOptionPrompt.takeRetainedValue() as String
+        return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    }
+
+    func openAccessibilitySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
+    }
+
+    /// For explicit "grant permission" buttons, where jumping straight to the
+    /// right System Settings pane is the point.
+    func requestAccessibilityPermission() {
+        promptForAccessibility()
+        openAccessibilitySettings()
     }
     
     // MARK: - Dock Icon Toggle

@@ -1,188 +1,314 @@
 import SwiftUI
+import ChaoticFingersCore
 
 struct LandingView: View {
     @Environment(InputBlocker.self) private var blocker
-    @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("appAppearance") private var appAppearance: AppAppearance = .system
-    @State private var selectedMode: InputBlocker.BlockingMode = .keyboard
-    var onAction: (InputBlocker.BlockingMode) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    // Pure SwiftUI background colors – resolved via @Environment(\.colorScheme),
-    // NOT via NSColor wrappers which lag behind preferredColorScheme changes.
-    private var bgColor: Color {
-        Color(nsColor: .windowBackgroundColor)
-    }
+    @AppStorage("defaultBlockingMode") private var defaultBlockingMode: BlockingMode = .keyboard
+    @State private var selectedMode: BlockingMode = .keyboard
+    @State private var hasSeededMode = false
 
-    private var cardBgColor: Color {
-        Color(nsColor: .controlBackgroundColor)
+    var onAction: (BlockingMode) -> Void
+
+    /// While blocking, the UI always describes what is actually blocked rather
+    /// than whatever the (disabled) picker happens to show.
+    private var displayedMode: BlockingMode {
+        blocker.isBlocking ? blocker.currentMode : selectedMode
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── TOP SECTION ──────────────────────────────────────────────────
-            ZStack {
-                bgColor
-
-                if let image = backgroundImage {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .opacity(0.12)
-                        .grayscale(1.0)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipped()
-                }
-
-                VStack(spacing: 8) {
-                    if let appIcon = NSApp.applicationIconImage {
-                        Image(nsImage: appIcon)
-                            .resizable()
-                            .frame(width: 80, height: 80)
-                            .shadow(color: Color.primary.opacity(0.15), radius: 10, x: 0, y: 5)
-                            .padding(.top, -10)
-                    }
-
-                    VStack(spacing: 2) {
-                        Text("Chaotic Fingers")
-                            .font(.system(size: 26, weight: .bold))
-                            .foregroundStyle(.primary)
-
-                        Text("Safeguard your inputs when your li'l one is around")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 20)
-                    }
-                    .padding(.top, 4)
-                }
-            }
-            .frame(height: 250)
-
-            Divider().opacity(0.5)
-
-            // ── BOTTOM SECTION ───────────────────────────────────────────────
-            VStack(spacing: 0) {
-                Spacer()
-
-                // Info Card
-                HStack(spacing: 16) {
-                    Image(systemName: modeIcon)
-                        .font(.system(size: 32, weight: .light))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(modeTitle)
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.primary)
-                        Text(modeDescription)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(18)
-                .background(cardBgColor)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                }
-                .shadow(color: Color.primary.opacity(0.04), radius: 4, x: 0, y: 2)
-                .padding(.horizontal, 24)
-
-                Spacer()
-
-                // Action Button
-                VStack(spacing: 8) {
-                    if blocker.isBlocking {
-                        Text(gestureInstruction)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Color.clear.frame(height: 14)
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-            }
-            .background(bgColor)
+            header
+            Divider()
+            controls
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: selectedMode)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: blocker.isBlocking)
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Picker("Mode", selection: $selectedMode) {
-                    Text("Keyboard").tag(InputBlocker.BlockingMode.keyboard)
-                    Text("Trackpad").tag(InputBlocker.BlockingMode.trackpad)
-                    Text("Both").tag(InputBlocker.BlockingMode.both)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 240)
-                .disabled(blocker.isBlocking)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button(blocker.isBlocking ? "Stop" : "Start") {
-                    if blocker.isBlocking {
-                        blocker.stopBlocking()
-                    } else {
-                        onAction(selectedMode)
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-            }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: displayedMode)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: blocker.isBlocking)
+        .frame(minWidth: AppTheme.Window.minWidth,
+               idealWidth: AppTheme.Window.idealWidth,
+               minHeight: AppTheme.Window.minHeight,
+               idealHeight: AppTheme.Window.idealHeight)
+        .onAppear {
+            // Opens on the mode the menu bar click uses, without binding the
+            // picker to the setting — a one-off choice here must not silently
+            // rewrite the default.
+            guard !hasSeededMode else { return }
+            hasSeededMode = true
+            if !blocker.isBlocking { selectedMode = defaultBlockingMode }
         }
-        .windowToolbarStyle(.unified)
-        .frame(minWidth: 420, idealWidth: 480, maxWidth: 800, minHeight: 420, idealHeight: 560, maxHeight: 900)
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // MARK: - Header
 
-    private var backgroundImage: NSImage? {
+    private var header: some View {
+        ZStack {
+            // `.windowBackground`, not `.headerView`: the header sits directly
+            // under the title bar with no separator, so a darker material would
+            // leave a visible step exactly where the hairline used to be.
+            if reduceTransparency {
+                Color(nsColor: .windowBackgroundColor)
+            } else {
+                VisualEffectView(material: .windowBackground)
+            }
+
+            if let image = Self.backgroundImage(for: displayedMode) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .grayscale(1)
+                    .opacity(0.10)
+                    .clipped()
+                    .accessibilityHidden(true)
+            }
+
+            VStack(spacing: AppTheme.Spacing.tiny + 2) {
+                if let appIcon = NSApp.applicationIconImage {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .frame(width: 56, height: 56)
+                        .shadow(color: .black.opacity(0.16), radius: 6, y: 3)
+                        .accessibilityHidden(true)
+                }
+
+                Text("Chaotic Fingers")
+                    .font(.title3.weight(.semibold))
+
+                Text("Safeguard your inputs when your li'l one is around")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, AppTheme.Spacing.large)
+            }
+            .padding(.vertical, AppTheme.Spacing.medium)
+        }
+        .frame(height: 150)
+    }
+
+    // MARK: - Controls
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.large) {
+            FilledSegmentedPicker(
+                options: BlockingMode.selectable.map { ($0, $0.shortTitle) },
+                selection: $selectedMode,
+                isEnabled: !blocker.isBlocking,
+                accessibilityLabel: "Blocking mode"
+            )
+            .frame(height: 24)
+
+            modeCard
+
+            if blocker.permissionDenied {
+                permissionWarning
+            } else if blocker.isBlocking {
+                StatusOverlayView(mode: blocker.currentMode)
+            }
+
+            Spacer(minLength: AppTheme.Spacing.small)
+
+            Button {
+                toggleBlocking()
+            } label: {
+                // The stretch has to happen on the label: applying it to the
+                // Button only widens the frame and centres the control in it.
+                Text(blocker.isBlocking ? "Stop Blocking" : "Start Blocking")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(blocker.isBlocking ? .red : .accentColor)
+            .keyboardShortcut(blocker.isBlocking ? .cancelAction : .defaultAction)
+            .accessibilityHint(blocker.isBlocking
+                               ? "Re-enables the inputs you locked."
+                               : "Locks the selected inputs until you stop or use the recovery gesture.")
+        }
+        .padding(AppTheme.Spacing.large)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .contextMenu {
+            Button(blocker.isBlocking ? "Stop Blocking" : "Start Blocking") {
+                toggleBlocking()
+            }
+            Divider()
+            ForEach(BlockingMode.selectable, id: \.rawValue) { mode in
+                Button(mode.shortTitle) { selectedMode = mode }
+                    .disabled(blocker.isBlocking)
+            }
+        }
+    }
+
+    private func toggleBlocking() {
+        if blocker.isBlocking {
+            blocker.stopBlocking()
+        } else {
+            onAction(selectedMode)
+        }
+    }
+
+    private var modeCard: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.medium) {
+            HStack(alignment: .top, spacing: AppTheme.Spacing.medium) {
+                Image(systemName: modeIcon)
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(modeTitle)
+                        .font(.callout.weight(.semibold))
+                    Text(modeDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
+                effectRow("nosign", blockedSummary, .secondary)
+                effectRow("checkmark.circle", passthroughSummary, .green)
+                effectRow("hand.raised", unlockSummary, .orange)
+            }
+        }
+        .padding(AppTheme.Spacing.medium)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .boxedPane()
+    }
+
+    private func effectRow(_ symbol: String, _ text: String, _ tint: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppTheme.Spacing.small) {
+            Image(systemName: symbol)
+                .font(.caption)
+                .foregroundStyle(tint)
+                .frame(width: 14)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+    }
+
+    private var permissionWarning: some View {
+        HStack(alignment: .top, spacing: AppTheme.Spacing.medium) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title3)
+                .foregroundStyle(.orange)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
+                Text("Accessibility access required")
+                    .font(.callout.weight(.semibold))
+                Text("macOS blocked the input tap, so nothing was locked. Grant Chaotic Fingers access under Privacy & Security, then try again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Open System Settings") {
+                    AppSetup.shared.requestAccessibilityPermission()
+                    blocker.clearPermissionWarning()
+                }
+                .controlSize(.small)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(AppTheme.Spacing.medium)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.10))
+        .boxedPane()
+    }
+
+    // MARK: - Copy
+
+    private var modeIcon: String {
+        switch displayedMode {
+        case .keyboard: return "keyboard"
+        case .trackpad: return "hand.tap"
+        case .both:     return "lock.shield"
+        case .none:     return "questionmark.circle"
+        }
+    }
+
+    private var modeTitle: String {
+        switch displayedMode {
+        case .keyboard: return "Secure your keyboard"
+        case .trackpad: return "Secure your trackpad"
+        case .both:     return "Secure both inputs"
+        case .none:     return "Nothing selected"
+        }
+    }
+
+    private var modeDescription: String {
+        switch displayedMode {
+        case .keyboard:
+            return "Lock the keyboard so keystrokes cannot reach any app."
+        case .trackpad:
+            return "Lock the trackpad and mouse so the pointer cannot reach any app."
+        case .both:
+            return "Lock the keyboard and the pointer together — a full input freeze."
+        case .none:
+            return "Pick a mode to get started."
+        }
+    }
+
+    private var blockedSummary: String {
+        switch displayedMode {
+        case .keyboard: return "Key presses are swallowed everywhere."
+        case .trackpad: return "Pointer, clicks and scrolling are swallowed."
+        case .both:     return "Keys, pointer, clicks and scrolling are swallowed."
+        case .none:     return "Nothing is blocked."
+        }
+    }
+
+    private var passthroughSummary: String {
+        switch displayedMode {
+        case .keyboard: return "The pointer still works, so this window stays clickable."
+        case .trackpad: return "Typing still works, and this window stays clickable."
+        case .both:     return "This window stays clickable so you can stop."
+        case .none:     return "Everything works."
+        }
+    }
+
+    private var unlockSummary: String {
+        switch displayedMode.releaseGesture {
+        case .shiftHold:   return "Hold both Shift keys for 3 seconds to unlock."
+        case .optionHold:  return "Hold both Option keys for 3 seconds to unlock."
+        case .commandHold: return "Hold both Command keys for 3 seconds to unlock."
+        case .forceQuit, .none: return "No recovery gesture needed."
+        }
+    }
+
+    // MARK: - Resources
+
+    /// Loaded once per mode — `body` re-runs on every hover and animation
+    /// frame, and decoding a PNG off disk each time is not free.
+    private static var imageCache: [BlockingMode: NSImage] = [:]
+
+    private static func backgroundImage(for mode: BlockingMode) -> NSImage? {
+        if let cached = imageCache[mode] { return cached }
+
         let name: String
-        switch selectedMode {
+        switch mode {
         case .keyboard: name = "keyboard_bg"
         case .trackpad: name = "trackpad_bg"
         case .both:     name = "both_bg"
         case .none:     return nil
         }
-        if let path = Bundle.module.path(forResource: name, ofType: "png") {
-            return NSImage(contentsOfFile: path)
-        }
-        return nil
-    }
 
-    private var modeIcon: String {
-        switch selectedMode {
-        case .keyboard: return "keyboard"
-        case .trackpad: return "hand.tap"
-        case .both:     return "plus.square.on.square"
-        case .none:     return ""
-        }
-    }
+        guard let path = Bundle.module.path(forResource: name, ofType: "png"),
+              let image = NSImage(contentsOfFile: path) else { return nil }
 
-    private var modeTitle: String {
-        switch selectedMode {
-        case .keyboard: return "Secure your keyboard"
-        case .trackpad: return "Secure your trackpad"
-        case .both:     return "Secure both inputs"
-        case .none:     return ""
-        }
-    }
-
-    private var modeDescription: String {
-        let target = selectedMode == .both ? "inputs"
-                   : (selectedMode == .keyboard ? "keyboard" : "trackpad")
-        return "The app temporarily disables your \(target) until you press the stop button or use the gesture."
-    }
-
-    private var gestureInstruction: String {
-        switch selectedMode {
-        case .keyboard: return "Hold L + R Shift for 3s to stop"
-        case .trackpad: return "Hold L + R Option for 3s to stop"
-        case .both:     return "Hold L + R Command for 3s to stop"
-        case .none:     return ""
-        }
+        imageCache[mode] = image
+        return image
     }
 }
